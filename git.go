@@ -69,23 +69,47 @@ func (s GitRepo) Vcs() Type {
 	return Git
 }
 
+// Sets the branch of the current clone on the repository.
+func (s *GitRepo) SetCloneBranch(branch string) {
+	s.setBranch(branch)
+}
+
+// Sets the import package on the repository.
+func (s *GitRepo) SetPkg(pkg string) {
+	s.setRawPkg(pkg)
+}
+
 // Get is used to perform an initial clone of a repository.
 func (s *GitRepo) Get() error {
-	out, err := s.run("git", "clone", "--recursive", s.Remote(), s.LocalPath())
+	remote := s.Remote()
+	local := s.LocalPath()
+	branch := s.Branch()
+
+	var out []byte
+	var err error
+
+	if branch == "" {
+		out, err = s.run("git", "clone", "--recursive", remote, local)
+	} else {
+		out, err = s.run("git", "clone", "--recursive", "-b", branch, remote, local)
+	}
 
 	// There are some windows cases where Git cannot create the parent directory,
 	// if it does not already exist, to the location it's trying to create the
 	// repo. Catch that error and try to handle it.
 	if err != nil && s.isUnableToCreateDir(err) {
-
 		basePath := filepath.Dir(filepath.FromSlash(s.LocalPath()))
 		if _, err := os.Stat(basePath); os.IsNotExist(err) {
 			err = os.MkdirAll(basePath, 0755)
 			if err != nil {
 				return NewLocalError("Unable to create directory", err, "")
 			}
+			if branch == "" {
+				out, err = s.run("git", "clone", remote, local)
+			} else {
+				out, err = s.run("git", "clone", "-b", branch, remote, local)
+			}
 
-			out, err = s.run("git", "clone", s.Remote(), s.LocalPath())
 			if err != nil {
 				return NewRemoteError("Unable to get repository", err, string(out))
 			}
@@ -366,7 +390,7 @@ func (s *GitRepo) Ping() bool {
 
 // EscapePathSeparator escapes the path separator by replacing it with several.
 // Note: this is harmless on Unix, and needed on Windows.
-func EscapePathSeparator(path string) (string) {
+func EscapePathSeparator(path string) string {
 	switch runtime.GOOS {
 	case `windows`:
 		// On Windows, triple all path separators.
@@ -379,7 +403,7 @@ func EscapePathSeparator(path string) (string) {
 		// used with --prefix, like this: --prefix=C:\foo\bar\ -> --prefix=C:\\\foo\\\bar\\\
 		return strings.Replace(path,
 			string(os.PathSeparator),
-			string(os.PathSeparator) + string(os.PathSeparator) + string(os.PathSeparator),
+			string(os.PathSeparator)+string(os.PathSeparator)+string(os.PathSeparator),
 			-1)
 	default:
 		return path
@@ -404,7 +428,7 @@ func (s *GitRepo) ExportDir(dir string) error {
 		return NewLocalError("Unable to create directory", err, "")
 	}
 
-	path = EscapePathSeparator( dir )
+	path = EscapePathSeparator(dir)
 	out, err := s.RunFromDir("git", "checkout-index", "-f", "-a", "--prefix="+path)
 	s.log(out)
 	if err != nil {
@@ -412,7 +436,7 @@ func (s *GitRepo) ExportDir(dir string) error {
 	}
 
 	// and now, the horror of submodules
-	path = EscapePathSeparator( dir + "$path" + string(os.PathSeparator) )
+	path = EscapePathSeparator(dir + "$path" + string(os.PathSeparator))
 	out, err = s.RunFromDir("git", "submodule", "foreach", "--recursive", "git checkout-index -f -a --prefix="+path)
 	s.log(out)
 	if err != nil {

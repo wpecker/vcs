@@ -69,6 +69,16 @@ func (s BzrRepo) Vcs() Type {
 	return Bzr
 }
 
+// Sets the branch of the current clone on the repository.
+func (s *BzrRepo) SetCloneBranch(branch string) {
+	s.setBranch(branch)
+}
+
+// Sets the import package on the repository.
+func (s *BzrRepo) SetPkg(pkg string) {
+	s.setRawPkg(pkg)
+}
+
 // Get is used to perform an initial clone of a repository.
 func (s *BzrRepo) Get() error {
 

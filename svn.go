@@ -70,6 +70,16 @@ func (s SvnRepo) Vcs() Type {
 	return Svn
 }
 
+// Sets the branch of the current clone on the repository.
+func (s *SvnRepo) SetCloneBranch(branch string) {
+	s.setBranch(branch)
+}
+
+// Sets the import package on the repository.
+func (s *SvnRepo) SetPkg(pkg string) {
+	s.setRawPkg(pkg)
+}
+
 // Get is used to perform an initial checkout of a repository.
 // Note, because SVN isn't distributed this is a checkout without
 // a clone.

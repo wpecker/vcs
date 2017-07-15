@@ -68,6 +68,16 @@ func (s HgRepo) Vcs() Type {
 	return Hg
 }
 
+// Sets the branch of the current clone on the repository.
+func (s *HgRepo) SetCloneBranch(branch string) {
+	s.setBranch(branch)
+}
+
+// Sets the import package on the repository.
+func (s *HgRepo) SetPkg(pkg string) {
+	s.setRawPkg(pkg)
+}
+
 // Get is used to perform an initial clone of a repository.
 func (s *HgRepo) Get() error {
 	out, err := s.run("hg", "clone", s.Remote(), s.LocalPath())

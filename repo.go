@@ -34,6 +34,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Logger is where you can provide a logger, implementing the log.Logger interface,
@@ -136,6 +138,12 @@ type Repo interface {
 
 	// ExportDir exports the current revision to the passed in directory.
 	ExportDir(string) error
+
+	// Sets the branch of the current clone on the repository.
+	SetCloneBranch(string)
+
+	// Sets the import package on the repository.
+	SetPkg(string)
 }
 
 // NewRepo returns a Repo based on trying to detect the source control from the
@@ -188,9 +196,21 @@ type CommitInfo struct {
 	Message string
 }
 
+type value struct {
+	rawPkg_ string `json:"rawPkg"`
+	remote_ string `json:"remote"`
+	local_  string `json:"local"`
+	branch_ string `json:"branch"`
+	buf     []int
+}
+
 type base struct {
-	remote, local string
-	Logger        *log.Logger
+	value
+	rawPkg string
+	remote string
+	local  string
+	branch string
+	Logger *log.Logger
 }
 
 func (b *base) log(v interface{}) {
@@ -207,15 +227,33 @@ func (b *base) LocalPath() string {
 	return b.local
 }
 
+func (b *base) Branch() string {
+	return b.branch
+}
+
 func (b *base) setRemote(remote string) {
+	b.value.remote_ = remote
 	b.remote = remote
 }
 
 func (b *base) setLocalPath(local string) {
+	b.value.local_ = local
 	b.local = local
 }
 
+func (b *base) setBranch(branch string) {
+	b.value.branch_ = branch
+	b.branch = branch
+}
+
+func (b *base) setRawPkg(pkg string) {
+	b.value.rawPkg_ = pkg
+	b.rawPkg = pkg
+}
+
 func (b base) run(cmd string, args ...string) ([]byte, error) {
+	logrus.Infofp("value:", b.value)
+	logrus.Infofp("run:", cmd, args)
 	out, err := exec.Command(cmd, args...).CombinedOutput()
 	b.log(out)
 	if err != nil {
@@ -225,6 +263,8 @@ func (b base) run(cmd string, args ...string) ([]byte, error) {
 }
 
 func (b *base) CmdFromDir(cmd string, args ...string) *exec.Cmd {
+	logrus.Debugfp("value:", b.value)
+	logrus.Infofp("CmdFromDir:", cmd, args)
 	c := exec.Command(cmd, args...)
 	c.Dir = b.local
 	c.Env = envForDir(c.Dir)
