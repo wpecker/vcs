@@ -252,7 +252,7 @@ func (b *base) setRawPkg(pkg string) {
 }
 
 func (b base) run(cmd string, args ...string) ([]byte, error) {
-	logrus.Infofp("run:", b.value, cmd, args)
+	logrus.Debugfp("run:", b.value, cmd, args)
 	out, err := exec.Command(cmd, args...).CombinedOutput()
 	b.log(out)
 	if err != nil {
@@ -262,7 +262,7 @@ func (b base) run(cmd string, args ...string) ([]byte, error) {
 }
 
 func (b *base) CmdFromDir(cmd string, args ...string) *exec.Cmd {
-	logrus.Infofp("CmdFromDir:", b.value, cmd, args)
+	logrus.Debugfp("CmdFromDir:", b.value, cmd, args)
 	c := exec.Command(cmd, args...)
 	c.Dir = b.local
 	c.Env = envForDir(c.Dir)

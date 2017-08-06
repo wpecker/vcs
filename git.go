@@ -92,6 +92,9 @@ func (s *GitRepo) Get() error {
 		out, err = s.run("git", "clone", "--recursive", remote, local)
 	} else {
 		out, err = s.run("git", "clone", "--recursive", "-b", branch, remote, local)
+		if err != nil {
+			out, err = s.run("git", "clone", "--recursive", remote, local)
+		}
 	}
 
 	// There are some windows cases where Git cannot create the parent directory,
