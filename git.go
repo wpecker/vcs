@@ -3,6 +3,7 @@ package vcs
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -10,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // NewGitRepo creates a new instance of GitRepo. The remote and local directories
@@ -64,6 +67,18 @@ type GitRepo struct {
 	RemoteLocation string
 }
 
+type TempRepo struct {
+	fun            string
+	rawPkg         string
+	remote         string
+	local          string
+	branch         string
+	RemoteLocation string
+	err            error
+	out            string
+	buf            []int
+}
+
 // Vcs retrieves the underlying VCS being implemented.
 func (s GitRepo) Vcs() Type {
 	return Git
@@ -85,15 +100,62 @@ func (s *GitRepo) Get() error {
 	local := s.LocalPath()
 	branch := s.Branch()
 
+	repoValue := &TempRepo{
+		fun:            "[GET]",
+		rawPkg:         s.rawPkg,
+		remote:         s.remote,
+		local:          s.local,
+		branch:         s.branch,
+		RemoteLocation: s.RemoteLocation,
+	}
+
 	var out []byte
 	var err error
 
 	if branch == "" {
-		out, err = s.run("git", "clone", "--recursive", remote, local)
-	} else {
-		out, err = s.run("git", "clone", "--recursive", "-b", branch, remote, local)
-		if err != nil {
+		for i := 1; i < 6; i++ {
+			err = nil
+			repoValue.err = nil
+			repoValue.out = ""
 			out, err = s.run("git", "clone", "--recursive", remote, local)
+			if err == nil {
+				break
+			}
+
+			repoValue.err = err
+			repoValue.out = string(out)
+			logrus.Warnfp("", i, s.value, repoValue)
+		}
+	} else {
+		ok := false
+		for i := 1; i < 6; i++ {
+			err = nil
+			repoValue.err = nil
+			repoValue.out = ""
+			if !ok {
+				out, err = s.run("git", "clone", "--recursive", "-b", branch, remote, local)
+				if err == nil {
+					break
+				}
+				repoValue.err = err
+				repoValue.out = string(out)
+			}
+
+			outMsg := fmt.Sprintf("Remote branch %s not found in upstream", branch)
+			if strings.Contains(repoValue.out, outMsg) {
+				ok = true
+			}
+
+			if ok {
+				out, err = s.run("git", "clone", "--recursive", remote, local)
+				if err == nil {
+					break
+				}
+
+				repoValue.err = err
+				repoValue.out = string(out)
+			}
+			logrus.Warnfp("", i, s.value, repoValue)
 		}
 	}
 
@@ -105,7 +167,10 @@ func (s *GitRepo) Get() error {
 		if _, err := os.Stat(basePath); os.IsNotExist(err) {
 			err = os.MkdirAll(basePath, 0755)
 			if err != nil {
-				return NewLocalError("Unable to create directory", err, "")
+				repoValue.err = err
+				repoValue.out = string(out)
+				logrus.Errorfp("", s.value, repoValue)
+				return NewLocalError("[0] Unable to create directory", err, "")
 			}
 			if branch == "" {
 				out, err = s.run("git", "clone", remote, local)
@@ -114,13 +179,19 @@ func (s *GitRepo) Get() error {
 			}
 
 			if err != nil {
-				return NewRemoteError("Unable to get repository", err, string(out))
+				repoValue.err = err
+				repoValue.out = string(out)
+				logrus.Errorfp("", s.value, repoValue)
+				return NewRemoteError("[1] Unable to get repository", err, string(out))
 			}
 			return err
 		}
 
 	} else if err != nil {
-		return NewRemoteError("Unable to get repository", err, string(out))
+		repoValue.err = err
+		repoValue.out = string(out)
+		logrus.Errorfp("", s.value, repoValue)
+		return NewRemoteError("[2] Unable to get repository", err, string(out))
 	}
 
 	return nil
@@ -130,6 +201,15 @@ func (s *GitRepo) Get() error {
 func (s *GitRepo) Init() error {
 	out, err := s.run("git", "init", s.LocalPath())
 
+	repoValue := &TempRepo{
+		fun:            "[INIT]",
+		rawPkg:         s.rawPkg,
+		remote:         s.remote,
+		local:          s.local,
+		branch:         s.branch,
+		RemoteLocation: s.RemoteLocation,
+	}
+
 	// There are some windows cases where Git cannot create the parent directory,
 	// if it does not already exist, to the location it's trying to create the
 	// repo. Catch that error and try to handle it.
@@ -139,18 +219,27 @@ func (s *GitRepo) Init() error {
 		if _, err := os.Stat(basePath); os.IsNotExist(err) {
 			err = os.MkdirAll(basePath, 0755)
 			if err != nil {
-				return NewLocalError("Unable to initialize repository", err, "")
+				repoValue.err = err
+				repoValue.out = string(out)
+				logrus.Errorfp("", s.value, repoValue)
+				return NewLocalError("[0] Unable to initialize repository", err, "")
 			}
 
 			out, err = s.run("git", "init", s.LocalPath())
 			if err != nil {
-				return NewLocalError("Unable to initialize repository", err, string(out))
+				repoValue.err = err
+				repoValue.out = string(out)
+				logrus.Errorfp("", s.value, repoValue)
+				return NewLocalError("[1] Unable to initialize repository", err, string(out))
 			}
 			return nil
 		}
 
 	} else if err != nil {
-		return NewLocalError("Unable to initialize repository", err, string(out))
+		repoValue.err = err
+		repoValue.out = string(out)
+		logrus.Errorfp("", s.value, repoValue)
+		return NewLocalError("[2] Unable to initialize repository", err, string(out))
 	}
 
 	return nil
@@ -158,17 +247,33 @@ func (s *GitRepo) Init() error {
 
 // Update performs an Git fetch and pull to an existing checkout.
 func (s *GitRepo) Update() error {
+
+	repoValue := &TempRepo{
+		fun:            "[UPDATE]",
+		rawPkg:         s.rawPkg,
+		remote:         s.remote,
+		local:          s.local,
+		branch:         s.branch,
+		RemoteLocation: s.RemoteLocation,
+	}
+
 	// Perform a fetch to make sure everything is up to date.
 	out, err := s.RunFromDir("git", "fetch", "--tags", s.RemoteLocation)
 	if err != nil {
-		return NewRemoteError("Unable to update repository", err, string(out))
+		repoValue.err = err
+		repoValue.out = string(out)
+		logrus.Errorfp("", s.value, repoValue)
+		return NewRemoteError("[0] Unable to update repository", err, string(out))
 	}
 
 	// When in a detached head state, such as when an individual commit is checked
 	// out do not attempt a pull. It will cause an error.
 	detached, err := isDetachedHead(s.LocalPath())
 	if err != nil {
-		return NewLocalError("Unable to update repository", err, "")
+		repoValue.err = err
+		repoValue.out = string(out)
+		logrus.Errorfp("", s.value, repoValue)
+		return NewLocalError("[1] Unable to update repository", err, "")
 	}
 
 	if detached {
@@ -177,7 +282,10 @@ func (s *GitRepo) Update() error {
 
 	out, err = s.RunFromDir("git", "pull")
 	if err != nil {
-		return NewRemoteError("Unable to update repository", err, string(out))
+		repoValue.err = err
+		repoValue.out = string(out)
+		logrus.Errorfp("", s.value, repoValue)
+		return NewRemoteError("[2] Unable to update repository", err, string(out))
 	}
 
 	return s.defendAgainstSubmodules()
